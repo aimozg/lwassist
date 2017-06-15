@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <link rel="stylesheet" href="https://ssl.gstatic.com/docs/script/css/add-ons1.css">
+    <!-- The CSS package above applies Google styling to buttons and other elements. -->
+
+    <style>
+    .branding-below {
+      /*bottom: 56px;
+      top: 0;*/
+    }
+
+    .branding-text {
+      /*left: 7px;
+      position: relative;
+      top: 3px;*/
+    }
+
+    .col-contain {
+      overflow: hidden;
+    }
+
+    .col-one {
+      /*float: left;
+      width: 50%;*/
+    }
+
+   
+
+    .radio-spacer {
+      height: 20px;
+    }
+
+    .width-100 {
+      width: 100%;
+    }
+    </style>
+  </head>
+  <body>
+    <div class="sidebar branding-below">
+      <form>
+       <div class="block" id="button-bar">
+          <button class="blue" id="run-convert" type="button">Convert</button>
+          <!--<button id="debug-dom">Debug DOM</button>-->
+        </div>
+        <div class="block">
+          <input type="checkbox" id="apply-format" checked="checked">
+          <label for="apply-format">Apply formatting</label>
+        </div>
+        <!--<div class="block col-contain">
+          <div class="col-one">
+            <b>Selected text</b>
+            <div>
+              <input type="radio" name="origin" id="radio-origin-auto" value="" checked="checked">
+              <label for="radio-origin-auto">Auto-detect</label>
+            </div>
+          </div>
+        </div>-->
+
+        <div class="block form-group">
+          <label for="converted-text"><b>ActionScript</b></label>
+          <textarea class="width-100" id="converted-text" rows="10"></textarea>
+        </div>
+
+        <!--<div class="block">
+          <input type="checkbox" id="save-prefs">
+          <label for="save-prefs">Use these languages by default</label>
+        </div>-->
+
+      </form>
+    </div>
+
+    <div class="sidebar bottom">
+      <!-- .logo { vertical-align: middle; }
+      <img alt="Add-on logo" class="logo" 
+           src="https://www.gstatic.com/images/branding/product/1x/translate_48dp.png" 
+           width="27" height="27">-->
+      <span class="gray branding-text">Lewd Writer's Assistant by aimozg</span>
+    </div>
+
+    <script src="//ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js">
+    </script>
+    <script>
+      /**
+       * On document load, assign click handlers to each button and try to load the
+       * preferences if previously set.
+       */
+      $(function() {
+        $('#run-convert').click(runTranslation);
+        $('#debug-dom').click(debugDom);
+        google.script.run.withSuccessHandler(loadPreferences)
+            .withFailureHandler(showError).getPreferences();
+      });
+
+      /**
+       * Callback function that populates the UI with user preferences from the server.
+       */
+      function loadPreferences(prefs) {
+        $('#apply-format')
+            .prop('checked', prefs.applyFormat);
+      }
+
+      function runTranslation() {
+        this.disabled = true;
+        $('#error').remove();
+        google.script.run
+            .withSuccessHandler(
+              function(result, element) {
+                $('#converted-text').val(result.as3.join('\n'));
+                element.disabled = false;
+              })
+            .withFailureHandler(
+              function(msg, element) {
+                showError(msg, $('#button-bar'));
+                element.disabled = false;
+              })
+            .withUserObject(this)
+            .transpile({applyFormat:$('#apply-format').prop('checked')});
+      }
+
+      function debugDom() {
+        this.disabled = true;
+        $('#error').remove();
+        google.script.run
+            .withSuccessHandler(
+              function(result, element) {
+                console.log(result.logs);
+                element.disabled = false;
+              })
+            .withFailureHandler(
+              function(msg, element) {
+                showError(msg, $('#button-bar'));
+                element.disabled = false;
+              })
+            .withUserObject(this)
+            .debugDom();
+      }
+
+      /**
+       * Runs a server-side function to insert the translated text into the document
+       * at the user's cursor or selection.
+       */
+      /*function insertText() {
+        this.disabled = true;
+        $('#error').remove();
+        google.script.run
+            .withSuccessHandler(
+              function(returnSuccess, element) {
+                element.disabled = false;
+              })
+            .withFailureHandler(
+              function(msg, element) {
+                showError(msg, $('#button-bar'));
+                element.disabled = false;
+              })
+            .withUserObject(this)
+            .insertText($('#translated-text').val());
+      }*/
+
+      /**
+       * Inserts a div that contains an error message after a given element.
+       */
+      function showError(msg, element) {
+        var div = $('<div id="error" class="error">' + msg + '</div>');
+        $(element).after(div);
+      }
+    </script>
+  </body>
+</html>
