@@ -106,7 +106,13 @@ function parseDocument(doc: Document): TFile[] {
 	
 	function parseConfigStatement(I: number, config: TConfigSection): number {
 		// todo config statement
-		I++;
+		let par = DATA[I++];
+		let parts = [] as TTextRun[];
+		parseParagraph(parts,null,par.par);
+		for (let run of parts) {
+			let [tag, rest] = extractTagWithRest(run.text);
+			if (tag && tag == 'extends') config.file.superclass = rest;
+		}
 		return I;
 	}
 	
@@ -384,20 +390,6 @@ function parseDocument(doc: Document): TFile[] {
 			return btnidx;
 		}
 		
-		function matchStringLiteral(s: string): RegExpMatchArray {
-			return s.match(/^“([^”]*)”\s*/) ||
-				   s.match(/^‘([^’]*)’\s*/) ||
-				   s.match(/^"([^"]*)"\s*/) ||
-				   s.match(/^'([^']*)'\s*/);
-		}
-		
-		function extractTagWithRest(s: string): [string, string] {
-			let match;
-			if ((match = s.match(/^\[\s*([\w\-_$]+)\s*(.*)\]\s*$/))) {
-				return [match[1].toLowerCase(), match[2]];
-			}
-			return ['', ''];
-		}
 		
 		function parseUntil(J: number, dst: TStatement[], until: EStopFlag[]): [number, string | null, string | null] {
 			let prev: TStatement = null;
@@ -535,7 +527,7 @@ function parseDocument(doc: Document): TFile[] {
 								// todo select line
 								throw "Missing closing quotes"
 							}
-							let btnfn = identifier(rest, REX_SIMPLE_EXPR);
+							let btnfn = cap0(identifier(rest, REX_SIMPLE_EXPR));
 							if (!btnfn) throw "Missing or invalid [button] function or expression";
 							if (btntxt === null) btntxt = capX(rest.trim(), 0, ' ');
 							return [J, {
@@ -547,7 +539,7 @@ function parseDocument(doc: Document): TFile[] {
 							}];
 						case 'do':
 							method.returns = true;
-							let expr       = identifier(rest, REX_EXPR);
+							let expr       = cap0(identifier(rest, REX_EXPR));
 							if (!expr) throw "Missing or invalid [do] expression";
 							if (expr.indexOf('(') < 0) expr += '()';
 							return [J, {
@@ -560,7 +552,7 @@ function parseDocument(doc: Document): TFile[] {
 							if (!argid) throw "Missing or invalid [continue] function";
 							return [J, {
 								type  : 'call',
-								action: argid,
+								action: cap0(argid),
 								run   : run
 							}];
 						case 'next':
@@ -570,7 +562,7 @@ function parseDocument(doc: Document): TFile[] {
 								type  : 'button',
 								label : 'Next',
 								idx   : reserveButton(BTNIDX),
-								action: argid,
+								action: cap0(argid),
 								run   : run
 							}];
 						case 'camp':

@@ -140,6 +140,19 @@ function findUnescaped(haystack, needle, start) {
 function findIndent(e) {
     return Math.max(e.par.getIndentFirstLine(), e.par.getIndentFirstLine());
 }
+function matchStringLiteral(s) {
+    return s.match(/^“([^”]*)”\s*/) ||
+        s.match(/^‘([^’]*)’\s*/) ||
+        s.match(/^"([^"]*)"\s*/) ||
+        s.match(/^'([^']*)'\s*/);
+}
+function extractTagWithRest(s) {
+    var match;
+    if ((match = s.match(/^\[\s*([\w\-_$]+)\s*(.*)\]\s*$/))) {
+        return [match[1].toLowerCase(), match[2]];
+    }
+    return ['', ''];
+}
 var GroupStyleZero = [null, null, null, null];
 var GroupStyles = [
     ['#111144',
@@ -456,7 +469,15 @@ function parseDocument(doc) {
     }
     function parseConfigStatement(I, config) {
         // todo config statement
-        I++;
+        var par = DATA[I++];
+        var parts = [];
+        parseParagraph(parts, null, par.par);
+        for (var _i = 0, parts_1 = parts; _i < parts_1.length; _i++) {
+            var run = parts_1[_i];
+            var _a = extractTagWithRest(run.text), tag = _a[0], rest = _a[1];
+            if (tag && tag == 'extends')
+                config.file.superclass = rest;
+        }
         return I;
     }
     /*
@@ -741,19 +762,6 @@ function parseDocument(doc) {
                 BTNIDX++;
             return btnidx;
         }
-        function matchStringLiteral(s) {
-            return s.match(/^“([^”]*)”\s*/) ||
-                s.match(/^‘([^’]*)’\s*/) ||
-                s.match(/^"([^"]*)"\s*/) ||
-                s.match(/^'([^']*)'\s*/);
-        }
-        function extractTagWithRest(s) {
-            var match;
-            if ((match = s.match(/^\[\s*([\w\-_$]+)\s*(.*)\]\s*$/))) {
-                return [match[1].toLowerCase(), match[2]];
-            }
-            return ['', ''];
-        }
         function parseUntil(J, dst, until) {
             var prev = null;
             while (J < M) {
@@ -895,7 +903,7 @@ function parseDocument(doc) {
                                 // todo select line
                                 throw "Missing closing quotes";
                             }
-                            var btnfn = identifier(rest, REX_SIMPLE_EXPR);
+                            var btnfn = cap0(identifier(rest, REX_SIMPLE_EXPR));
                             if (!btnfn)
                                 throw "Missing or invalid [button] function or expression";
                             if (btntxt === null)
@@ -909,7 +917,7 @@ function parseDocument(doc) {
                                 }];
                         case 'do':
                             method.returns = true;
-                            var expr = identifier(rest, REX_EXPR);
+                            var expr = cap0(identifier(rest, REX_EXPR));
                             if (!expr)
                                 throw "Missing or invalid [do] expression";
                             if (expr.indexOf('(') < 0)
@@ -925,7 +933,7 @@ function parseDocument(doc) {
                                 throw "Missing or invalid [continue] function";
                             return [J, {
                                     type: 'call',
-                                    action: argid,
+                                    action: cap0(argid),
                                     run: run
                                 }];
                         case 'next':
@@ -936,7 +944,7 @@ function parseDocument(doc) {
                                     type: 'button',
                                     label: 'Next',
                                     idx: reserveButton(BTNIDX),
-                                    action: argid,
+                                    action: cap0(argid),
                                     run: run
                                 }];
                         case 'camp':

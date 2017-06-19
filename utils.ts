@@ -138,3 +138,17 @@ function findUnescaped(haystack: string, needle: string, start?: number): number
 function findIndent(e:TTextRun):number {
 	return Math.max(e.par.getIndentFirstLine(),e.par.getIndentFirstLine())
 }
+function matchStringLiteral(s: string): RegExpMatchArray {
+	return s.match(/^“([^”]*)”\s*/) ||
+		   s.match(/^‘([^’]*)’\s*/) ||
+		   s.match(/^"([^"]*)"\s*/) ||
+		   s.match(/^'([^']*)'\s*/);
+}
+
+function extractTagWithRest(s: string): [string, string] {
+	let match;
+	if ((match = s.match(/^\[\s*([\w\-_$]+)\s*(.*)\]\s*$/))) {
+		return [match[1].toLowerCase(), match[2]];
+	}
+	return ['', ''];
+}
