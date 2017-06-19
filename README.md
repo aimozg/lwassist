@@ -31,3 +31,14 @@ These methods should be called with `[do give pc a sword]`
 ## Syntax reference
 
 TBD
+
+## Installation
+
+In Google Doc:
+1. Menu Tools -> script editor
+2. Menu File -> New -> HTML file, name it Sidebar.html
+3. Replace Code.gs and Sidebar.html content with respective files from GitHub repository
+4. Replace 'Untitled project' with "Lewd Writer's Assistant"
+5. Save both files (Ctrl+S)
+6. Close script editor and update the Google Doc page
+7. Menu Add-ons -> menu there's new submenu, go into it, "show". If it asks for permissions to view and edit this document content, "Allow"
