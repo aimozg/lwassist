@@ -67,25 +67,19 @@ function traceElement(depth, e) {
         }
     }
 }
-function styBg(sty, bg) {
-    sty[DocumentApp.Attribute.BACKGROUND_COLOR] = bg;
-    return sty;
-}
-function styFg(sty, fg) {
-    sty[DocumentApp.Attribute.FOREGROUND_COLOR] = fg;
-    return sty;
-}
-function styBold(sty, bold) {
-    sty[DocumentApp.Attribute.BOLD] = '' + bold;
-    return sty;
-}
-function styItalic(sty, italic) {
-    sty[DocumentApp.Attribute.ITALIC] = '' + italic;
-    return sty;
-}
-function styFace(sty, fontFamily) {
-    sty[DocumentApp.Attribute.FONT_FAMILY] = fontFamily;
-    return sty;
+function applyStyle(run, style) {
+    var sty = {};
+    if ('fg' in style && style.fg !== null)
+        sty[DocumentApp.Attribute.FOREGROUND_COLOR] = style.fg;
+    if ('bg' in style && style.bg !== null)
+        sty[DocumentApp.Attribute.BACKGROUND_COLOR] = style.bg;
+    if ('bold' in style && style.bold !== null)
+        sty[DocumentApp.Attribute.BOLD] = '' + style.bold;
+    if ('italic' in style && style.italic !== null)
+        sty[DocumentApp.Attribute.ITALIC] = '' + style.italic;
+    if ('face' in style && style.face !== null)
+        sty[DocumentApp.Attribute.FONT_FAMILY] = style.face;
+    run.element.setAttributes(run.i1, run.i2 - 1, sty);
 }
 function debugDom() {
     Logger.clear();
@@ -153,7 +147,42 @@ function extractTagWithRest(s) {
     }
     return ['', ''];
 }
-var GroupStyleZero = [null, null, null, null];
+function paragraphOf(ele) {
+    while (ele && ele.getType() !== DocumentApp.ElementType.PARAGRAPH)
+        ele = ele.getParent();
+    return ele ? ele.asParagraph() : null;
+}
+function headingValue(h) {
+    switch (h) {
+        case DocumentApp.ParagraphHeading.TITLE: return 0;
+        case DocumentApp.ParagraphHeading.SUBTITLE: return 1;
+        case DocumentApp.ParagraphHeading.HEADING1: return 2;
+        case DocumentApp.ParagraphHeading.HEADING2: return 3;
+        case DocumentApp.ParagraphHeading.HEADING3: return 4;
+        case DocumentApp.ParagraphHeading.HEADING4: return 5;
+        case DocumentApp.ParagraphHeading.HEADING5: return 6;
+        case DocumentApp.ParagraphHeading.HEADING6: return 7;
+        case DocumentApp.ParagraphHeading.NORMAL: return 8;
+        default: return 10;
+    }
+}
+function iterateFromHeader(header, code) {
+    var h0 = headingValue(header.getHeading());
+    var next = header;
+    while (true) {
+        do {
+            next = next.getNextSibling();
+        } while (next && next.getType() != DocumentApp.ElementType.PARAGRAPH);
+        if (!next)
+            break;
+        var par = next.asParagraph();
+        if (headingValue(par.getHeading()) <= h0) {
+            break;
+        }
+        code(par);
+    }
+}
+var GroupStyleZero = ['#000000', '#000000', '#ffffff', '#ffffff'];
 var GroupStyles = [
     ['#111144',
         '#222288',
@@ -195,134 +224,63 @@ var GroupStyles = [
 function groupStyle(depth2) {
     return depth2 <= 0 ? GroupStyleZero : GroupStyles[(depth2 + GroupStyles.length - 1) % GroupStyles.length];
 }
-function formatDocument(files, options) {
-    function formatBlock(run, depth2, boldable) {
-        if (!run)
-            return;
-        var sty = {};
-        switch (options.blocksMode) {
-            case 'none':
-                break;
-            case 'fill':
-                styBg(sty, groupStyle(depth2)[3]);
-                break;
-            /*case 'fill2':
-                styBg(groupStyle(depth2)[2],sty);
-                break;*/
-            case 'color':
-                styFg(sty, groupStyle(depth2)[1]);
-                break;
-            case 'color2':
-                styFg(sty, groupStyle(depth2)[2]);
-                break;
-            case 'both':
-                styBg(sty, groupStyle(depth2)[3]);
-                styFg(sty, groupStyle(depth2)[1]);
-                break;
+function formatSection(header, options) {
+    var depth = 0;
+    iterateFromHeader(header, function (par) {
+        if (par.getHeading() === DocumentApp.ParagraphHeading.NORMAL) {
+            var runs = splitParagraph(par);
+            for (var _i = 0, runs_1 = runs; _i < runs_1.length; _i++) {
+                var run = runs_1[_i];
+                switch (run.type) {
+                    case 'text':
+                        applyStyle(run, { fg: groupStyle(depth)[1] });
+                        break;
+                    case 'tag':
+                        applyStyle(run, { fg: '#7722aa' });
+                        break;
+                    case "comment":
+                        applyStyle(run, { fg: '#666666', face: 'Consolas' });
+                        break;
+                    case "xml":
+                        var xi = run.xml;
+                        applyStyle(run, { fg: '#227722', face: 'Consolas' });
+                        if (!xi.single) {
+                            if (['case', 'default', 'if', 'else'].indexOf(xi.tag) != -1) {
+                                if (xi.open)
+                                    depth++;
+                                if (xi.closing)
+                                    depth--;
+                            }
+                        }
+                }
+            }
         }
-        if (boldable && options.blocksBold) {
-            styBold(sty, true);
+        else {
+            depth = 0;
         }
-        run.element.setAttributes(run.i1, run.i2 - 1, sty);
+    });
+}
+function formatDocument(options) {
+    if (options === void 0) { options = {}; }
+    //const userProperties = PropertiesService.getUserProperties();
+    //userProperties.setProperty('flushFormat', ''+ options.applyFormat);
+    Logger.clear();
+    Logger.log("formatDocument(" + JSON.stringify(options) + ")");
+    var doc = DocumentApp.getActiveDocument();
+    var pos = doc.getCursor();
+    var par = paragraphOf(pos.getElement());
+    while (par && par.getHeading() === DocumentApp.ParagraphHeading.NORMAL) {
+        par = paragraphOf(par.getPreviousSibling());
     }
-    function formatComment(run) {
-        if (!run)
-            return;
-        var sty = {};
-        switch (options.commentsMode) {
-            case 'none':
-                break;
-            case 'fill':
-                styFg(sty, '#000000');
-                styBg(sty, '#faefae');
-                break;
-            case 'italic':
-                styItalic(sty, true);
-                break;
-            case 'color':
-                styFg(sty, '#3d6666');
-                styBg(sty, null);
-                break;
-        }
-        run.element.setAttributes(run.i1, run.i2 - 1, sty);
-    }
-    function formatBtn(run) {
-        if (!run)
-            return;
-        var sty = {};
-        switch (options.buttonsMode) {
-            case 'none':
-                break;
-            case 'fill':
-                styFg(sty, '#000000');
-                styBg(sty, '#face8d');
-                break;
-            case 'mono':
-                styFace(sty, 'Consolas');
-                break;
-            case 'boldmono':
-                styBold(sty, true);
-                styFace(sty, 'Consolas');
-                break;
-        }
-        run.element.setAttributes(run.i1, run.i2 - 1, sty);
-    }
-    function formatStmt(stmt, depth) {
-        if (!stmt)
-            return;
-        var depth2 = depth * 2;
-        switch (stmt.type) {
-            case 'text':
-                formatBlock(stmt.run, depth2, false);
-                break;
-            case 'comment':
-                formatComment(stmt.run);
-                break;
-            case 'if':
-                formatBlock(stmt.run, depth2 + 1, true);
-                formatStmts(stmt.thenBlock, depth + 1);
-                formatBlock(stmt.elseRun, depth2 + 1, true);
-                formatStmt(stmt.elseIfBlock, depth);
-                formatStmts(stmt.elseBlock, depth + 1);
-                formatBlock(stmt.endRun, depth2 + 1, false);
-                break;
-            case 'call':
-            case 'exec':
-                formatBlock(stmt.run, depth2, false);
-                break;
-            case 'button':
-                formatBlock(stmt.run, depth2, false);
-                formatBtn(stmt.run);
-                break;
-            default:
-                formatBlock(stmt.run, depth2, false);
-        }
-    }
-    function formatStmts(stmts, depth) {
-        if (!stmts)
-            return;
-        for (var _i = 0, stmts_1 = stmts; _i < stmts_1.length; _i++) {
-            var stmt = stmts_1[_i];
-            formatStmt(stmt, depth);
-        }
-    }
-    for (var _i = 0, files_1 = files; _i < files_1.length; _i++) {
-        var file = files_1[_i];
-        for (var _a = 0, _b = file.methods; _a < _b.length; _a++) {
-            var method = _b[_a];
-            formatStmts(method.statements, 0);
-        }
-    }
+    if (!par)
+        return;
+    formatSection(par, options);
 }
 /**
  * @OnlyCurrentDoc
  */
 ///<reference path="utils.ts"/>
 ///<reference path="formatter.ts"/>
-var Element = DocumentApp.Element;
-var Paragraph = DocumentApp.Paragraph;
-var Text = DocumentApp.Text;
-var ContainerElement = DocumentApp.ContainerElement;
 function onOpen(e) {
     DocumentApp.getUi().createAddonMenu()
         .addItem('Show', 'showSidebar')
@@ -341,924 +299,354 @@ function ifund(x, y) {
 }
 function getPreferences() {
     var userProperties = PropertiesService.getUserProperties();
-    return {
-        applyFormat: ifund(userProperties.getProperty('applyFormat'), 'false') == 'true',
-        blocksMode: ifund(userProperties.getProperty('colorBlocks'), 'color'),
-        blocksBold: ifund(userProperties.getProperty('blocksBold'), 'false') == 'true',
-        buttonsMode: ifund(userProperties.getProperty('buttonsMode'), 'boldmono'),
-        commentsMode: ifund(userProperties.getProperty('commentsMode'), 'color')
-    };
-}
-function transpile(options) {
-    if (options === void 0) { options = {}; }
-    var userProperties = PropertiesService.getUserProperties();
-    userProperties.setProperty('flushFormat', '' + options.applyFormat);
-    userProperties.setProperty('blocksMode', '' + options.blocksMode);
-    userProperties.setProperty('blocksBold', '' + options.blocksBold);
-    userProperties.setProperty('buttonsMode', '' + options.buttonsMode);
-    userProperties.setProperty('commentsMode', '' + options.commentsMode);
-    Logger.clear();
-    Logger.log("transplie(" + JSON.stringify(options) + ")");
-    var result = { as3: [] };
-    var files = parseDocument(DocumentApp.getActiveDocument());
-    result.as3 = writeSources(files);
-    if (options.applyFormat)
-        formatDocument(files, options);
-    return result;
+    return {};
 }
 /*
  * Created by aimozg on 18.06.2017.
  * Confidential until published on GitHub
  */
-function parseDocument(doc) {
-    Logger.log("parseDocument()");
-    var N;
-    var DATA = [];
-    function parseFile(I) {
-        var p0 = DATA[I++];
-        var name = strip(p0.text, /[^a-zA-Z0-9_$\/\.]/g);
-        if (!name.match(/.+\.as$/)) {
-            Logger.log('Skipping H2 ' + JSON.stringify(p0.text));
-            return [I, null];
-        }
-        Logger.log('parseFile(' + JSON.stringify(name) + ')');
-        var path = name.split('/');
-        path.unshift('Scenes');
-        path.unshift('classes');
-        var classname = identifier(path.pop().replace('.as', ''));
-        var file = {
-            name: name,
-            path: path,
-            classname: classname,
-            superclass: 'BaseContent',
-            comment: p0.comment,
-            config: null,
-            methods: [],
-            document: doc
-        };
-        var end = false;
-        while (I < N && !end) {
-            var _a = DATA[I], par = _a.par, text = _a.text, comment = _a.comment;
-            switch (par.getHeading()) {
-                case DocumentApp.ParagraphHeading.TITLE:
-                case DocumentApp.ParagraphHeading.SUBTITLE:
-                case DocumentApp.ParagraphHeading.HEADING1:
-                case DocumentApp.ParagraphHeading.HEADING2:
-                    end = true;
-                    break;
-                case DocumentApp.ParagraphHeading.HEADING3:
-                case DocumentApp.ParagraphHeading.HEADING4:
-                case DocumentApp.ParagraphHeading.HEADING5:
-                    if (strip(text) === '(config)') {
-                        _b = parseConfig(I, file), I = _b[0], file.config = _b[1];
-                    }
-                    else {
-                        var method = void 0;
-                        _c = parseMethod(I, file), I = _c[0], method = _c[1];
-                        if (method)
-                            file.methods.push(method);
-                    }
-                    break;
-                case DocumentApp.ParagraphHeading.NORMAL:
-                    if (text)
-                        file.comment += '\n' + text;
-                    if (comment)
-                        file.comment += ' // ' + comment;
-                    I++;
-                    break;
-                default:
-                    Logger.log('Illegal ParagraphHeading: ' + par.getHeading());
-                    I++;
-            }
-        }
-        file.comment = file.comment.trim();
-        Logger.log("END of parseFile()");
-        return [I, file];
-        var _b, _c;
-    }
-    function parseConfig(I, file) {
-        var p0 = DATA[I++];
-        Logger.log('parseConfig()');
-        var config = {
-            file: file,
-            comment: p0.comment
-        };
-        var end = false;
-        while (I < N && !end) {
-            var par = DATA[I].par;
-            switch (par.getHeading()) {
-                case DocumentApp.ParagraphHeading.TITLE:
-                case DocumentApp.ParagraphHeading.SUBTITLE:
-                case DocumentApp.ParagraphHeading.HEADING1:
-                case DocumentApp.ParagraphHeading.HEADING2:
-                case DocumentApp.ParagraphHeading.HEADING3:
-                case DocumentApp.ParagraphHeading.HEADING4:
-                case DocumentApp.ParagraphHeading.HEADING5:
-                    end = true;
-                    break;
-                case DocumentApp.ParagraphHeading.NORMAL:
-                    I = parseConfigStatement(I, config);
-                    break;
-                default:
-                    Logger.log('Illegal ParagraphHeading: ' + par.getHeading());
-                    I++;
-            }
-        }
-        Logger.log('END of parseConfig()');
-        return [I, config];
-    }
-    function parseConfigStatement(I, config) {
-        // todo config statement
-        var par = DATA[I++];
-        var parts = [];
-        parseParagraph(parts, null, par.par);
-        for (var _i = 0, parts_1 = parts; _i < parts_1.length; _i++) {
-            var run = parts_1[_i];
-            var _a = extractTagWithRest(run.text), tag = _a[0], rest = _a[1];
-            if (tag && tag == 'extends')
-                config.file.superclass = rest;
-        }
-        return I;
-    }
-    /*
-     interface Crawler {
-     // context
-     blockDepth: 0;
-     text: string;
-     element: Text;
-     indents: number[]; // start indents in points
-     // text-related
-     bold: boolean;
-     italic: boolean;
-     output: string;
-     runs: number[];
-     ibkt1: number; // pos in text of [
-     ibkt1c: number; // pos in text of ]
-     }
-     function applyIndent(textIndent: number): void {
-     const indents = this.indents;
-     while (textIndent < indents[0]) {
-     prevText = '';
-     if (indents.length <= 1) {
-     throw "Indents broke! Are there negatives?"
-     }
-     if (silentOpenCounter > 0) {
-     silentOpenCounter--;
-     evalExpr("end", null);
-     }
-     indents.shift();
-     logcode("// applyIndent(" + textIndent + ")-->" + indents.join())
-     }
-     if (textIndent > indents[0]) {
-     prevText = '';
-     indents.unshift(textIndent);
-     if (doSilentOpen) {
-     doSilentOpen = false;
-     silentOpenCounter++;
-     //evalExpr("silent{",null);
-     }
-     logcode("// applyIndent(" + textIndent + ")++>" + indents.join())
-     }
-     }
-     function outputFormat(crawler: Crawler, bold2: boolean, italic2: boolean): void {
-     if (crawler.bold && !bold2 && crawler.italic) {
-     // in case of   <b> xx <i> yy ^ </b> zz </i>
-     // replace with <b> xx <i> yy </i> ^ </b> <i> zz </i>
-     crawler.italic = false;
-     crawler.output += '</i>';
-     }
-     if (!crawler.bold && bold2) crawler.output += '<b>';
-     if (!crawler.italic && italic2) crawler.output += '<i>';
-     if (crawler.italic && !italic2) crawler.output += '</i>';
-     if (crawler.bold && !bold2) crawler.output += '</b>';
-     crawler.bold   = bold2;
-     crawler.italic = italic2;
-     }
-     
-     
-     const crawler: Crawler = {
-     blockDepth: 0,
-     bold      : false,
-     italic    : false,
-     text      : '',
-     output    : '',
-     element   : null,
-     runs      : [],
-     indents   : [0], // start indents in points
-     ibkt1     : -1, // pos in text of [
-     ibkt1c    : -1, // pos in text of ]
-     };
-     
-     const crawler = {
-     outputRun    : function (configSection:TConfigSection): void {
-     const i1 = this.runs[0];
-     const i2 = this.runs[1];
-     this.runs.shift();
-     if (i2 <= i1) return;
-     if (configSection) return;
-     const s = this.text.substring(i1, i2);
-     this.format(this.element.isBold(i2 - 1), this.element.isItalic(i2 - 1),configSection);
-     outputText(s);
-     if (options.applyFormat) {
-     const sty                                   = {};
-     const row                                   = blockDepth > 0 ? GroupStyles[blockDepth * 2 % GroupStyles.length] : GroupStyleZero;
-     // sty[DocumentApp.Attribute.BACKGROUND_COLOR] = row[2];
-     sty[DocumentApp.Attribute.FOREGROUND_COLOR] = row[1];
-     this.element.setAttributes(i1, i2 - 1, sty);
-     }
-     },
-     expr         : function (): string {
-     return (this.ibkt1 >= 0 && this.ibkt1c > 0) ? this.text.substring(this.ibkt1 + 1, this.ibkt1c).trim() : null;
-     }
-     };
-     
-     function evalExpr(expr: string, crawler: Crawler): void {
-     if (prevText === '\n') {
-     prevText = '';
-     sources.pop();
-     }
-     doSilentOpen = false;
-     const argv   = expr.split(/\s+/);
-     const cmd    = argv[0].toLowerCase();
-     let arg1str  = expr.substr(cmd.length).replace(/^\s+/, '');
-     let myDepth  = blockDepth * 2;
-     let myBold   = false;
-     let myFont   = null;
-     let i, n, s, name;
-     if (configSection) {
-     myBold = true;
-     myFont = 'Consolas';
-     switch (cmd) {
-     case 'extends':
-     setSuperclass(identifier(arg1str));
-     break;
-     case 'require':
-     if (argv.length < 3) throw "Incorrect [require] syntax";
-     name = identifier(arg1str.substr(argv[1].length));
-     s    = 'override public function ';
-     let rt;
-     switch (argv[1].toLowerCase()) {
-     case 'flag':
-     case 'number':
-     rt = 'Number';
-     break;
-     case 'text':
-     rt = 'String;';
-     break;
-     case 'action':
-     rt = 'void';
-     break;
-     default:
-     throw "Incorrect [require] type"
-     }
-     s += (rt === 'void' ? '' : 'get ') + name + '():' + rt + ' {';
-     as3log(s);
-     indentPlus();
-     if (rt === 'void') {
-     as3log('super.' + name + '();');
-     } else {
-     as3log('return super.' + name + ';');
-     }
-     indentMinus();
-     as3log('}');
-     break;
-     default:
-     throw "Unknown config command " + cmd;
-     }
-     }
-     if (crawler && options.applyFormat) {
-     const sty = {};
-     const row = myDepth > 0 ? GroupStyles[myDepth % GroupStyles.length] : GroupStyleZero;
-     
-     sty[DocumentApp.Attribute.FOREGROUND_COLOR] = row[1];
-     if (myBold !== undefined) sty[DocumentApp.Attribute.BOLD] = myBold;
-     sty[DocumentApp.Attribute.FONT_FAMILY] = myFont;
-     //sty[DocumentApp.Attribute.BACKGROUND_COLOR] = row[1];
-     crawler.element.setAttributes(crawler.ibkt1, crawler.ibkt1c, sty);
-     }
-     }
-     
-     */
-    function parseParagraph(parts, method, par) {
-        for (var ci = 0, cn = par.getNumChildren(); ci < cn; ci++) {
-            var c = par.getChild(ci).asText();
-            if (!c)
-                continue;
-            var runs = c.getTextAttributeIndices();
-            var text = c.getText();
-            runs.push(text.length);
-            var comment = text.indexOf('//');
-            if (comment >= 0)
-                text = text.substring(0, comment);
-            var open = findUnescaped(text, '[');
-            if (open >= 0)
-                Logger.log("Splitting text to runs " + JSON.stringify(runs) + " with first '[' at " + open);
-            while (runs.length > 1) {
-                if (comment >= 0 && runs[0] >= comment)
-                    break;
-                if (comment >= 0 && runs[1] > comment)
-                    runs[1] = comment;
-                if (open >= 0 && open < runs[1]) {
-                    var close = void 0;
-                    close = findUnescaped(text, ']', open);
-                    var open2 = findUnescaped(text, '[', open + 1);
-                    if (close < 0 || open2 > 0 && open2 < close) {
-                        throw 'Encountered mismatched or complex bracket expression in ' +
-                            JSON.stringify(text.substring(0, 20)) + ': ' +
-                            '[ at ' + open + (open2 > 0 ? ' and ' + open2 : '') + ', ] at ' + close;
-                    }
-                    if (runs[0] < open) {
-                        // [ xxx '[' yyy ] => [ xxx ] [ '[' yyy ]
-                        runs.unshift(runs[0]);
-                        runs[1] = open;
-                    }
-                    else {
-                        while (close >= runs[1]) {
-                            // [ '[' yyy ] [ zzz ']' www ] => [ '[' yyy zzz ']' www ]
-                            if (runs.length <= 2)
-                                throw 'Parser broke! ' + JSON.stringify({
-                                    runs: runs, open: open, close: close, text: text.substring(runs[0], runs[1])
-                                });
-                            runs[1] = runs[0];
-                            runs.shift();
-                        }
-                        open = open2;
-                        if (close + 1 < runs[1]) {
-                            // [ '[' yyy zzz ']' www ] => [ '[' yyy zzz ']' ] [ www ]
-                            runs.unshift(runs[0]);
-                            runs[1] = close + 1;
-                        }
-                    }
-                }
-                if (runs.length < 2)
-                    throw 'Parser broke! ' + JSON.stringify({
-                        runs: runs, open: open, text: text.substring(runs[0], runs[1])
-                    });
-                var i1 = runs[0];
-                var i2 = runs[1];
-                runs.shift();
-                if (i2 > i1) {
-                    var p = {
-                        par: par, element: c, i1: i1, i2: i2,
-                        text: text.substring(i1, i2),
-                        bold: c.isBold(i2 - 1),
-                        italic: c.isItalic(i2 - 1)
-                    };
-                    //Logger.log(TTextRun.toString(p)); // todo if verbose
-                    parts.push(p);
-                }
-            }
-            if (comment >= 0) {
-                text = c.getText();
-                var p = {
-                    par: par, element: c,
-                    i1: comment, i2: text.length,
-                    text: text.substring(comment),
-                    bold: c.isBold(comment),
-                    italic: c.isItalic(comment)
-                };
-                //Logger.log(TTextRun.toString(p));
-                parts.push(p);
-            }
-        }
-        if (parts.length > 0 && parts[parts.length - 1].text[0] != '[')
-            parts[parts.length - 1].text += '\n';
-    }
-    function parseMethod(I, file) {
-        var p0 = DATA[I++];
-        var methodname = cap0(identifier(p0.text));
-        if (!methodname) {
-            Logger.log('Skipping H3-5 ' + JSON.stringify(p0.text));
-            return [I, null];
-        }
-        Logger.log('parseMethod(' + JSON.stringify(methodname) + ')');
-        var method = {
-            name: methodname,
-            buttons: [],
-            returns: false,
-            comment: p0.comment,
-            file: file,
-            statements: []
-        };
-        var BTNIDX = 0;
-        var PARTS = [];
-        while (I < N) {
-            var par = DATA[I].par;
-            if (par.getHeading() != DocumentApp.ParagraphHeading.NORMAL) {
-                break;
-            }
-            // TODO indent?
-            parseParagraph(PARTS, method, par);
-            I++;
-        }
-        method.comment = method.comment.trim();
-        var M = PARTS.length;
-        Logger.log("Found " + M + " text part(s)");
-        if (M > 0)
-            Logger.log("Last one is " + PARTS[M - 1].i1 + ":" + PARTS[M - 1].i2 + " " + JSON.stringify(PARTS[M - 1].text));
-        function reserveButton(btnidx) {
-            method.buttons[btnidx] = true;
-            while (method.buttons[BTNIDX])
-                BTNIDX++;
-            return btnidx;
-        }
-        function parseUntil(J, dst, until) {
-            var prev = null;
-            while (J < M) {
-                var stmt = void 0;
-                if (until.indexOf('indent') >= 0 && prev) {
-                    var myIndent = findIndent(PARTS[J]);
-                    var prevIndent = findIndent(prev.run);
-                    if (myIndent < prevIndent) {
-                        return [J, 'indent', null];
-                    }
-                }
-                _a = parseStatement(J, (prev && prev.type == 'text') ? prev : null, until), J = _a[0], stmt = _a[1];
-                if (stmt) {
-                    Logger.log(stmt.type + ' ' + JSON.stringify(stmt.run ? stmt.run.text.substr(0, 10) : null));
-                    dst.push(stmt);
-                    prev = stmt;
+var LA_TEXT = /^[^<\[\\]+/;
+var LA_ENT = /^&#?[a-zA-Z0-9]+;/;
+var LA_TAG_OPEN = /^\[/;
+var LA_TAG_CONTENT = /^[^<\]\\]+/;
+var LA_XML_CLOSE = /^<\/([a-zA-Z0-9_\-:]+)>/;
+var LA_XML_TAG_START = /^<([a-zA-Z0-9_\-:]+)/;
+var LA_XML_TAG_INNER = /^[^>]+/;
+var LA_XML_TAG_END = /^\/?>/;
+var LA_XML_COMMENT = /^<!--[\s\S\n]*?-->/;
+function splitParagraph(par) {
+    var rslt = [];
+    for (var ci = 0, cn = par.getNumChildren(); ci < cn; ci++) {
+        var c = par.getChild(ci).asText();
+        if (!c)
+            continue;
+        var runs = c.getTextAttributeIndices();
+        var text = c.getText();
+        runs.shift();
+        runs.push(text.length);
+        //Logger.log('runs = '+JSON.stringify(runs));
+        // 1) Split text
+        var textParts = [];
+        while (text) {
+            var m = void 0;
+            var text0 = text;
+            if (text[0] == '\\') {
+                if (text.length >= 2 && text[1] != '<') {
+                    textParts.push(text.slice(0, 2));
+                    text = text.slice(2);
                 }
                 else {
-                    if (J < M) {
-                        var run = PARTS[J];
-                        var tr = extractTagWithRest(run.text);
-                        return [J, tr[0], tr[1]];
-                    }
+                    textParts.push(text);
+                    text = '';
                 }
             }
-            Logger.log("Saved " + dst.length + " statement(s)");
-            return [J, null, null];
-            var _a;
-        }
-        function parseIfStatement(J, ifstmt, indentBreak) {
-            Logger.log("Parsing [if]");
-            var indent = findIndent(ifstmt.run);
-            var run, tag, rest;
-            _a = parseUntil(J, ifstmt.thenBlock, indentBreak ? ['indent', 'end', 'elseif', 'else'] : ['end', 'elseif', 'else']), J = _a[0], tag = _a[1], rest = _a[2];
-            Logger.log("then-block hit [" + tag + ' ' + rest + "] after " + (ifstmt.thenBlock.length) + " statement(s)");
-            run = PARTS[J++];
-            switch (tag) {
-                case 'end':
-                    ifstmt.endRun = run;
-                    return [J, ifstmt];
-                case 'indent':
-                    return [J, ifstmt];
-                case 'else':
-                    if (rest.substring(0, 2).toLowerCase() == 'if') {
-                        var expr_1 = identifier(rest.substring(2), REX_EXPR);
-                        if (!expr_1)
-                            throw "Missing or invalid [else if] expression";
-                        ifstmt.elseIfBlock = {
-                            type: 'if',
-                            run: run,
-                            condition: expr_1,
-                            thenBlock: [],
-                            elseBlock: null,
-                            elseIfBlock: null,
-                        };
-                        Logger.log("adding [else if]:");
-                        _b = parseIfStatement(J, ifstmt.elseIfBlock, false), J = _b[0], ifstmt.elseIfBlock = _b[1];
-                        return [J, ifstmt];
+            else if ((m = text.match(LA_TEXT))) {
+                textParts.push(m[0]);
+                text = text.slice(m[0].length);
+            }
+            else if ((m = text.match(LA_XML_COMMENT))) {
+                textParts.push(m[0]);
+                text = text.slice(m[0].length);
+            }
+            else if ((m = text.match(LA_ENT))) {
+                textParts.push(m[0]);
+                text = text.slice(m[0].length);
+            }
+            else if ((m = text.match(LA_TAG_OPEN))) {
+                var s = m[0];
+                text = text.slice(s.length);
+                while (text) {
+                    if (text[0] == ']') {
+                        s += ']';
+                        text = text.slice(1);
+                        break;
+                    }
+                    else if (text[0] == '\\') {
+                        if (text.length >= 2 && text[1] != '<') {
+                            s += text.slice(0, 2);
+                            text = text.slice(2);
+                        }
+                        else {
+                            s += text[0];
+                            text = text.slice(1);
+                        }
+                    }
+                    else if ((m = text.match(LA_TAG_CONTENT))) {
+                        s += m[0];
+                        text = text.slice(m[0].length);
                     }
                     else {
-                        if (rest.trim())
-                            throw "Incorrect [else] (not empty, not [else if])";
-                        ifstmt.elseRun = run;
-                        ifstmt.elseBlock = [];
-                        Logger.log("adding [else]:");
-                        _c = parseUntil(J, ifstmt.elseBlock, ['end']), J = _c[0], tag = _c[1];
-                        if (tag !== 'end') {
-                            throw "Unexpected end of input";
-                        }
-                        ifstmt.endRun = PARTS[J];
-                        Logger.log("else-block hit [end] after " + (ifstmt.elseBlock.length) + " statement(s)");
-                        J++;
-                        return [J, ifstmt];
-                    }
-                case 'elseif':
-                    var expr = identifier(rest, REX_EXPR);
-                    if (!expr)
-                        throw "Missing or invalid [if] expression";
-                    ifstmt.elseIfBlock = {
-                        type: 'if',
-                        run: run,
-                        condition: expr,
-                        thenBlock: [],
-                        elseBlock: null,
-                        elseIfBlock: null,
-                    };
-                    Logger.log("adding [elseif]:");
-                    _d = parseIfStatement(J, ifstmt.elseIfBlock, false), J = _d[0], ifstmt.elseIfBlock = _d[1];
-                    return [J, ifstmt];
-                default:
-                    throw "Unexpected end of input; " + tag;
-            }
-            var _a, _b, _c, _d;
-        }
-        function parseStatement(J, prev, stop) {
-            var run = PARTS[J++];
-            //Logger.log(" "+TTextRun.toString(run)); // todo if verbose
-            var match;
-            if ((match = run.text.match(/^\s*\/\/(.*)/))) {
-                Logger.log('//comment: ' + JSON.stringify(match[1].substring(0, 20)));
-                return [J, {
-                        type: 'comment',
-                        comment: match[1],
-                        run: run
-                    }];
-            }
-            else if (run.text[0] === '[') {
-                var _a = extractTagWithRest(run.text), tagname = _a[0], rest = _a[1];
-                if (tagname) {
-                    var argid = identifier(rest);
-                    Logger.log("[" + tagname + "]");
-                    switch (tagname) {
-                        case 'end':
-                        case 'elseif':
-                        case 'else':
-                            if (stop.indexOf(tagname) >= 0) {
-                                return [J - 1, null];
-                            }
-                            else {
-                                // todo select line
-                                throw "Mismatched [" + tagname + "]";
-                            }
-                        case 'choice':
-                            method.returns = true;
-                            var btnidx = void 0;
-                            if ((match = rest.match(/^(\d+)\s*/))) {
-                                btnidx = reserveButton((+match[1]) + 1);
-                                rest = rest.substr(match[0].length);
-                            }
-                            else {
-                                btnidx = reserveButton(BTNIDX);
-                            }
-                            var btntxt = null;
-                            if (match = matchStringLiteral(rest)) {
-                                btntxt = match[1];
-                                rest = rest.substr(match[0].length);
-                            }
-                            else if ('“‘"\''.indexOf(rest[0]) >= 0) {
-                                // todo select line
-                                throw "Missing closing quotes";
-                            }
-                            var btnfn = cap0(identifier(rest, REX_SIMPLE_EXPR));
-                            if (!btnfn)
-                                throw "Missing or invalid [button] function or expression";
-                            if (btntxt === null)
-                                btntxt = capX(rest.trim(), 0, ' ');
-                            return [J, {
-                                    type: 'button',
-                                    label: btntxt,
-                                    idx: btnidx,
-                                    action: btnfn,
-                                    run: run
-                                }];
-                        case 'do':
-                            method.returns = true;
-                            var expr = cap0(identifier(rest, REX_EXPR));
-                            if (!expr)
-                                throw "Missing or invalid [do] expression";
-                            if (expr.indexOf('(') < 0)
-                                expr += '()';
-                            return [J, {
-                                    type: 'exec',
-                                    action: expr,
-                                    run: run
-                                }];
-                        case 'continue':
-                            method.returns = true;
-                            if (!argid)
-                                throw "Missing or invalid [continue] function";
-                            return [J, {
-                                    type: 'call',
-                                    action: cap0(argid),
-                                    run: run
-                                }];
-                        case 'next':
-                            method.returns = true;
-                            if (!argid)
-                                throw "Missing or invalid [next] function";
-                            return [J, {
-                                    type: 'button',
-                                    label: 'Next',
-                                    idx: reserveButton(BTNIDX),
-                                    action: cap0(argid),
-                                    run: run
-                                }];
-                        case 'camp':
-                            method.returns = true;
-                            match = matchStringLiteral(rest);
-                            return [J, {
-                                    type: 'button',
-                                    label: match ? match[1] : 'Next',
-                                    idx: reserveButton(BTNIDX),
-                                    action: 'camp.returnToCampUseOneHour',
-                                    run: run
-                                }];
-                        case 'if': {
-                            if (rest[0] === '(') {
-                                return [J, {
-                                        type: 'tag',
-                                        text: run.text,
-                                        run: run
-                                    }];
-                            }
-                            var expr_2 = identifier(rest, REX_EXPR);
-                            if (!expr_2)
-                                throw "Missing or invalid [if] expression";
-                            var ifstmt = {
-                                type: 'if',
-                                run: run,
-                                condition: expr_2,
-                                thenBlock: [],
-                                elseBlock: null,
-                                elseIfBlock: null,
-                            };
-                            return parseIfStatement(J, ifstmt, true);
-                        }
+                        Logger.log('Illegal parser tag ' + JSON.stringify(s + text) + ' after ' + JSON.stringify(textParts));
+                        return [];
                     }
                 }
-                Logger.log("Not a special tag " + JSON.stringify(run.text));
-                return [J, {
-                        type: 'tag',
-                        text: run.text,
-                        run: run
-                    }];
+                textParts.push(s);
+            }
+            else if ((m = text.match(LA_XML_CLOSE))) {
+                textParts.push(m[0]);
+                text = text.slice(m[0].length);
+            }
+            else if ((m = text.match(LA_XML_TAG_START))) {
+                var s = m[0];
+                text = text.slice(s.length);
+                while (text) {
+                    if ((m = text.match(LA_XML_TAG_INNER))) {
+                        s += m[0];
+                        text = text.slice(m[0].length);
+                    }
+                    else if ((m = text.match(LA_XML_TAG_END))) {
+                        s += m[0];
+                        text = text.slice(m[0].length);
+                        break;
+                    }
+                    else {
+                        Logger.log('Illegal XML tag ' + JSON.stringify(s + text) + ' after ' + JSON.stringify(textParts));
+                        return [];
+                    }
+                }
+                textParts.push(s);
             }
             else {
-                return [J, {
-                        type: 'text',
-                        text: run.text,
-                        run: run
-                    }];
+                textParts.push(text[0]);
+                text = text.slice(1);
+            }
+            if (text == text0) {
+                Logger.log('ERROR stuck on ' + JSON.stringify(text) + ' after ' + JSON.stringify(textParts));
+                return [];
             }
         }
-        var j = 0;
-        parseUntil(0, method.statements, []);
-        /*
-         if (crawler.blockDepth > 0) {
-         // todo select block
-         // doc.setSelection(doc.newRange().addElement(par).build());
-         throw "Unterminated block";
-         }
-         if (!method.returns) {
-         // todo select prev element
-         // doc.setSelection(doc.newRange().addElement(par).build());
-         throw "No [continue ...], [camp], [next ...], or [choice ...] tags"
-         }
-         */
-        Logger.log("END of parseMethod()");
-        return [I, method];
-    }
-    var body = doc.getBody();
-    var files = [];
-    for (var i = 0, n = body.getNumChildren(); i < n; i++) {
-        if (body.getChild(i).getType() !== DocumentApp.ElementType.PARAGRAPH)
-            continue;
-        var par = body.getChild(i).asParagraph();
-        var _a = uncomment(par.getText()), text = _a[0], comment = _a[1];
-        DATA.push({ par: par, text: text, comment: comment });
-    }
-    N = DATA.length;
-    Logger.log("Found " + N + " paragraph(s)");
-    for (var I = 0; I < N;) {
-        if (DATA[I].par.getHeading() == DocumentApp.ParagraphHeading.HEADING2) {
-            var file = void 0;
-            _b = parseFile(I), I = _b[0], file = _b[1];
-            if (file)
-                files.push(file);
-        }
-        else {
-            I++;
-        }
-    }
-    Logger.log("END of parseDocument()");
-    return files;
-    var _b;
-}
-/*
- * Created by aimozg on 18.06.2017.
- * Confidential until published on GitHub
- */
-function writeSources(files) {
-    var sources = [];
-    var tabs = '';
-    var blockDepth = 0;
-    var eol = true;
-    function as3(loc) {
-        sources.push(tabs + loc);
-        return sources.length - 1;
-    }
-    function logcode(loc) {
-        Logger.log(':' + sources.length + ' <' + blockDepth + '>\t' + loc);
-    }
-    function markNotEol() {
-        eol = false;
-    }
-    function as3log(loc) {
-        if (!eol) {
-            sources[sources.length - 1] += loc;
-            logcode(loc);
-            eol = true;
-        }
-        else {
-            sources.push(tabs + loc);
-            logcode(loc);
-        }
-    }
-    function indentPlus() {
-        tabs += '\t';
-    }
-    function indentMinus() {
-        tabs = tabs.substring(1);
-    }
-    function writeComment(comment) {
-        comment = comment.trim();
-        if (comment.indexOf('\n') < 0) {
-            as3('// ' + comment);
-        }
-        else {
-            as3('/*');
-            for (var _i = 0, _a = comment.split('\n'); _i < _a.length; _i++) {
-                var l = _a[_i];
-                as3(' * ' + l);
+        // 2) Subsplit is raw text and different formatting
+        var i1 = 0;
+        while (textParts.length > 0) {
+            var tp = textParts[0];
+            var i2 = i1 + tp.length;
+            if (tp[0] != '[' && tp[0] != '<' && tp[0] != '\\') {
+                i2 = Math.min(runs[0], i2);
             }
-            as3('*/');
-        }
-    }
-    function appendOutput(ctx, text) {
-        ctx.output += text;
-    }
-    function flushFormat(ctx, bold2, italic2) {
-        if (ctx.bold && !bold2 && ctx.italic) {
-            // in case of   <b> xx <i> yy ^ </b> zz </i>
-            // replace with <b> xx <i> yy </i> ^ </b> <i> zz </i>
-            ctx.italic = false;
-            ctx.output += '</i>';
-        }
-        if (!ctx.bold && bold2)
-            ctx.output += '<b>';
-        if (!ctx.italic && italic2)
-            ctx.output += '<i>';
-        if (ctx.italic && !italic2)
-            ctx.output += '</i>';
-        if (ctx.bold && !bold2)
-            ctx.output += '</b>';
-        ctx.bold = bold2;
-        ctx.italic = italic2;
-    }
-    function flushOutput(ctx) {
-        var s = ctx.output;
-        var s2 = '';
-        while (s) {
-            var i = 0;
-            while (s[i] == '\n')
-                i++;
-            i = s.indexOf('\n', i);
-            if (i < 0 || i == s.length - 1) {
-                break;
+            if (i1 >= i2) {
+                Logger.log("ERROR: cannot create run " + i1 + ":" + i2 + "; progress is " + rslt.map(TTextRun.toString));
+                return [];
+            }
+            var type = void 0;
+            if (tp.match(LA_XML_COMMENT)) {
+                type = 'comment';
+            }
+            else if (tp[0] == '<') {
+                type = 'xml';
+            }
+            else if (tp[0] == '[') {
+                type = 'tag';
             }
             else {
-                if (s2)
-                    as3('outputText(' + JSON.stringify(s2) + ');');
-                s2 = s.substring(0, i);
-                s = s.substring(i);
+                type = 'text';
             }
-        }
-        s += s2;
-        if (s) {
-            as3('outputText(' + JSON.stringify(s) + ');');
-        }
-        ctx.output = '';
-    }
-    function closeContext(ctx) {
-        flushOutput(ctx);
-        flushFormat(ctx, false, false);
-    }
-    function writeStatement(ctx, stmt) {
-        Logger.log('<' + ctx.depth + '>\t' + stmt.type + ' ' + JSON.stringify(stmt.run ? stmt.run.text.substr(0, 10) : null));
-        if (stmt.type == 'text' || stmt.type == 'tag') {
-            var text = stmt.run.text;
-            if (text) {
-                flushFormat(ctx, stmt.run.bold, stmt.run.italic);
-                appendOutput(ctx, text);
-            }
-        }
-        else {
-            closeContext(ctx);
-        }
-        switch (stmt.type) {
-            case 'text':
-            case 'tag':
-                break;
-            case 'comment':
-                writeComment(stmt.comment);
-                break;
-            case 'button':
-                as3log('addButton(' + stmt.idx + ', ' + JSON.stringify(stmt.label) + ', ' + stmt.action + ');');
-                break;
-            case 'call':
-                as3log(stmt.action + '();');
-                break;
-            case 'exec':
-                as3log(stmt.action + ';');
-                break;
-            case 'if':
-                as3log('if (' + stmt.condition + ') {');
-                indentPlus();
-                ctx.depth++;
-                for (var _i = 0, _a = stmt.thenBlock; _i < _a.length; _i++) {
-                    var istmt = _a[_i];
-                    writeStatement(ctx, istmt);
-                }
-                closeContext(ctx);
-                ctx.depth--;
-                indentMinus();
-                as3log('}');
-                if (stmt.elseIfBlock) {
-                    markNotEol();
-                    as3log(' else ');
-                    markNotEol();
-                    writeStatement(ctx, stmt.elseIfBlock);
-                }
-                else if (stmt.elseBlock) {
-                    markNotEol();
-                    as3log(' else {');
-                    ctx.depth++;
-                    indentPlus();
-                    for (var _b = 0, _c = stmt.elseBlock; _b < _c.length; _b++) {
-                        var istmt = _c[_b];
-                        writeStatement(ctx, istmt);
-                    }
-                    closeContext(ctx);
-                    as3log('}');
-                }
-                break;
-            default:
-                writeComment("// [ERROR] Unknown stmt type " + stmt['type']);
-        }
-    }
-    for (var _i = 0, files_2 = files; _i < files_2.length; _i++) {
-        var file = files_2[_i];
-        tabs = '';
-        as3('// Start of file "' + file.name + '"');
-        as3('// GENERATED CODE - MANUAL CHANGES MAY BE OVERWRITTEN');
-        as3('// Generated by Lewd Writer\'s Assistant for Google Docs');
-        as3('// Source: ' + (file.document.getUrl() || file.document.getId()));
-        as3('package ' + file.path.join('.') + ' {');
-        as3('');
-        as3('import classes.*');
-        as3('');
-        if (file.comment)
-            writeComment(file.comment);
-        as3('public class ' + file.classname + ' extends ' + file.superclass + ' {');
-        indentPlus();
-        // todo write config
-        for (var _a = 0, _b = file.methods; _a < _b.length; _a++) {
-            var method = _b[_a];
-            as3('');
-            if (method.comment)
-                writeComment(method.comment);
-            as3('public function ' + method.name + '():void {');
-            indentPlus();
-            as3('clearOutput();');
-            as3('menu();');
-            // todo write method content
-            var ctx = {
-                bold: false, italic: false, output: '', depth: 1
+            var run = {
+                par: par,
+                element: c,
+                i1: i1,
+                i2: i2,
+                text: tp.slice(0, i2 - i1),
+                bold: c.isBold(i2 - 1),
+                italic: c.isItalic(i2 - 1),
+                type: type
             };
-            for (var _c = 0, _d = method.statements; _c < _d.length; _c++) {
-                var stmt = _d[_c];
-                writeStatement(ctx, stmt);
+            if (type == 'xml')
+                run.xml = parseXmlTag(run.text);
+            rslt.push(run);
+            tp = tp.slice(i2 - i1);
+            i1 = i2;
+            if (tp) {
+                textParts[0] = tp;
             }
-            closeContext(ctx);
-            indentMinus();
-            as3('}');
+            else {
+                textParts.shift();
+            }
+            while (runs.length > 0 && runs[0] <= i2)
+                runs.shift();
         }
-        indentMinus();
-        as3('}');
-        as3('}');
-        as3('// End of file "' + file.name + '"');
     }
-    as3('');
-    return sources;
+    return rslt;
+}
+function parseXmlTag(xml) {
+    var m;
+    var x = { tag: '', single: true, closing: false, open: false };
+    if ((m = xml.match(LA_XML_TAG_START))) {
+        x.tag = m[1];
+        x.open = true;
+        x.single = !!xml.match(/\/>$/);
+    }
+    else if ((m = xml.match(LA_XML_CLOSE))) {
+        x.tag = m[1];
+        x.closing = true;
+        x.single = false;
+    }
+    return x;
 }
 /*
  * Created by aimozg on 18.06.2017.
  * Confidential until published on GitHub
  */
 var Document = DocumentApp.Document;
+var Paragraph = DocumentApp.Paragraph;
+var Text = DocumentApp.Text;
+var Element = DocumentApp.Element;
+var ContainerElement = DocumentApp.ContainerElement;
 var TTextRun;
 (function (TTextRun) {
     function toString(run) {
-        return "(" + run.i1 + ":" + run.i2 + " " + (run.bold ? "B" : "") + (run.italic ? "I" : "") +
+        return "(" + run.type + ' ' + run.i1 + ":" + run.i2 + " " + (run.bold ? "B" : "") + (run.italic ? "I" : "") +
             " " + JSON.stringify(run.text.substring(0, 100)) + ")";
     }
     TTextRun.toString = toString;
 })(TTextRun || (TTextRun = {}));
 /*
- * Created by aimozg on 19.06.2017.
+ * Created by aimozg on 01.11.2017.
  * Confidential until published on GitHub
  */
+function exportSection(header, options) {
+    var ItalicOn = {
+        '': 'i', 'b': 'bi', 'i': 'i', 'bi': 'bi', 'ib': 'ib'
+    };
+    var BoldOn = {
+        '': 'b', 'b': 'b', 'i': 'ib', 'bi': 'bi', 'ib': 'ib'
+    };
+    var ItalicOff = {
+        '': '', 'b': 'b', 'i': '', 'bi': 'b', 'ib': 'b'
+    };
+    var BoldOff = {
+        '': '', 'b': '', 'i': 'i', 'bi': 'i', 'ib': 'i'
+    };
+    var IsItalic = {
+        '': false, 'b': false, 'i': true, 'bi': true, 'ib': true
+    };
+    var IsBold = {
+        '': false, 'b': true, 'i': false, 'bi': true, 'ib': true
+    };
+    function applyStyle(prev, next) {
+        return {
+            '': {
+                '': '',
+                'b': '<b>',
+                'i': '<i>',
+                'bi': '<b><i>',
+                'ib': '<i><b>'
+            },
+            'b': {
+                '': '</b>',
+                'b': '',
+                'i': '</b><i>',
+                'bi': '<i>',
+                'ib': '</b><i><b>'
+            },
+            'i': {
+                '': '</i>',
+                'b': '</i><b>',
+                'i': '',
+                'bi': '</i><b><i>',
+                'ib': '<b>'
+            },
+            'bi': {
+                '': '</i></b>',
+                'b': '</i>',
+                'i': '</i></b><i>',
+                'bi': '',
+                'ib': '</i></b><i><b>'
+            },
+            'ib': {
+                '': '</b></i>',
+                'b': '</b></i><b>',
+                'i': '</b>',
+                'bi': '</b></i><b><i>',
+                'ib': ''
+            },
+        }[prev][next];
+    }
+    function myName(par) {
+        return par.getText().split('/').reverse()[0];
+    }
+    function exportStory(s) {
+        var tag = 'text';
+        var body = s.content.map(function (obj) {
+            if (typeof obj === 'string') {
+                return obj;
+            }
+            else {
+                tag = 'lib';
+                return exportStory(obj);
+            }
+        }).join('\n') + applyStyle(s.lastStyle, '');
+        return "<" + tag + " name=\"" + s.name + "\">" + '\n' + body + '\n' + ("</" + tag + ">");
+    }
+    var root = {
+        heading: headingValue(header.getHeading()),
+        name: myName(header),
+        content: [],
+        lastStyle: ''
+    };
+    var stack = [root];
+    iterateFromHeader(header, function (par) {
+        var top = stack[0];
+        if (par.getHeading() === DocumentApp.ParagraphHeading.NORMAL) {
+            var runs = splitParagraph(par);
+            var s = '';
+            for (var _i = 0, runs_2 = runs; _i < runs_2.length; _i++) {
+                var run = runs_2[_i];
+                var newStyle = top.lastStyle;
+                if (run.italic && !IsItalic[top.lastStyle]) {
+                    newStyle = ItalicOn[newStyle];
+                }
+                else if (!run.italic && IsItalic[top.lastStyle]) {
+                    newStyle = ItalicOff[newStyle];
+                }
+                if (run.bold && !IsBold[top.lastStyle]) {
+                    newStyle = BoldOn[newStyle];
+                }
+                else if (!run.bold && IsBold[top.lastStyle]) {
+                    newStyle = BoldOff[newStyle];
+                }
+                s += applyStyle(top.lastStyle, newStyle) + run.text;
+                if (top.lastStyle != newStyle)
+                    Logger.log("'" + top.lastStyle + "' -> '" + newStyle + "' by " + applyStyle(top.lastStyle, newStyle));
+                top.lastStyle = newStyle;
+            }
+            s += applyStyle(top.lastStyle, '');
+            top.lastStyle = '';
+            top.content.push(s);
+        }
+        else {
+            var h = headingValue(par.getHeading());
+            while (h <= stack[0].heading) {
+                Logger.log("pop(" + stack[0].name + ")");
+                stack.shift();
+            }
+            // h > stack.heading
+            var next = {
+                heading: h,
+                name: myName(par),
+                content: [],
+                lastStyle: ''
+            };
+            Logger.log("push(" + next.name + ")");
+            stack[0].content.push(next);
+            stack.unshift(next);
+        }
+    });
+    return exportStory(root);
+}
+function exportDocument(options) {
+    if (options === void 0) { options = {}; }
+    Logger.clear();
+    Logger.log("exportDocument(" + JSON.stringify(options) + ")");
+    var doc = DocumentApp.getActiveDocument();
+    var pos = doc.getCursor();
+    var par = paragraphOf(pos.getElement());
+    while (par && par.getHeading() === DocumentApp.ParagraphHeading.NORMAL) {
+        par = paragraphOf(par.getPreviousSibling());
+    }
+    if (!par)
+        return;
+    var xml = exportSection(par, options);
+    return {
+        xml: xml
+    };
+}

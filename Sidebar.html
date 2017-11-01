@@ -16,10 +16,12 @@
 <div class="sidebar">
 	<form>
 		<div class="block" id="button-bar">
-			<button class="blue" id="run-convert" type="button">Convert</button>
+			<button class="blue" id="run-format" type="button">Format</button>
+			<button class="blue" id="run-export" type="button">To XML</button>
+			<button class="blue" id="run-import" type="button" disabled>From XML</button>
 			<!--<button id="debug-dom">Debug DOM</button>-->
 		</div>
-		<div class="block">
+		<!--<div class="block">
 			<h4>Formatting</h4>
 			<div class="block">
 				<input type="checkbox" id="apply-format" checked>
@@ -56,40 +58,10 @@
 					<option value="italic">Italic font</option>
 				</select>
 			</div>
-		</div>
-		<!--<div class="block">
-			<h4>Blocks (<code>[if]-s</code>)</h4>
-			<div class="block">
-				<input type="radio" name="blocks-mode" id="none-blocks" value="none">
-				<label for="none-blocks">None</label>
-			</div>
-			<div class="block">
-				<input type="radio" name="blocks-mode" id="color-blocks" value="color">
-				<label for="color-blocks">Text color</label>
-			</div>
-			<div class="block">
-				<input type="radio" name="blocks-mode" id="fill-blocks" value="fill" checked>
-				<label for="fill-blocks">Highlight color</label>
-			</div>
-		</div>
-		<div class="block">
-			<h4>Buttons</h4>
-			<div class="block">
-				<input type="radio" name="buttons-mode" id="none-buttons" value="none" checked>
-				<label for="none-buttons">None</label>
-			</div>
-			<div class="block">
-				<input type="radio" name="buttons-mode" id="color-buttons" value="color">
-				<label for="color-buttons">Bold font</label>
-			</div>
-			<div class="block">
-				<input type="radio" name="buttons-mode" id="fill-buttons" value="fill">
-				<label for="fill-buttons">Highlight color</label>
-			</div>
 		</div>-->
 
 		<div class="block form-group">
-			<label for="converted-text"><b>ActionScript</b></label>
+			<label for="converted-text"><b>XML</b></label>
 			<textarea class="width-100" id="converted-text" rows="10"></textarea>
 		</div>
 
@@ -113,7 +85,8 @@
 	 * preferences if previously set.
 	 */
 	$(function () {
-		$('#run-convert').click(runTranslation);
+		$('#run-format').click(runFormat);
+		$('#run-export').click(runExport);
 		$('#debug-dom').click(debugDom);
 		google.script.run.withSuccessHandler(loadPreferences)
 			.withFailureHandler(showError).getPreferences();
@@ -130,6 +103,40 @@
 		$('#comments-mode').val(prefs.commentsMode);
 	}
 
+	function runFormat() {
+		this.disabled = true;
+		$('#error').remove();
+		google.script.run
+			.withSuccessHandler(
+				function (result, element) {
+//					$('#converted-text').val(result.xml.join('\n'));
+					element.disabled = false;
+				})
+			.withFailureHandler(
+				function (msg, element) {
+					showError(msg, $('#button-bar'));
+					element.disabled = false;
+				})
+			.withUserObject(this)
+			.formatDocument({});
+	}
+	function runExport() {
+		this.disabled = true;
+		$('#error').remove();
+		google.script.run
+			.withSuccessHandler(
+				function (result, element) {
+					$('#converted-text').val(result.xml);
+					element.disabled = false;
+				})
+			.withFailureHandler(
+				function (msg, element) {
+					showError(msg, $('#button-bar'));
+					element.disabled = false;
+				})
+			.withUserObject(this)
+			.exportDocument({});
+	}
 	function runTranslation() {
 		this.disabled = true;
 		$('#error').remove();

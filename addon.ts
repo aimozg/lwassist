@@ -5,11 +5,6 @@
 ///<reference path="utils.ts"/>
 ///<reference path="formatter.ts"/>
 
-import Element = DocumentApp.Element;
-import Paragraph = DocumentApp.Paragraph;
-import Text = DocumentApp.Text;
-import ContainerElement = DocumentApp.ContainerElement;
-
 function onOpen(e: { authMode: ScriptApp.AuthMode }): void {
 	DocumentApp.getUi().createAddonMenu()
 			   .addItem('Show', 'showSidebar')
@@ -27,11 +22,7 @@ function showSidebar(): void {
 }
 
 interface LWAPreferences {
-	applyFormat?: boolean; // "true" | "false"
-	blocksMode?: string; // "none" | "fill" | "color" | "color2"
-	blocksBold?: boolean; // "true" | "false"
-	buttonsMode?: string; // "none" | "fill" | "mono" | "boldmono"
-	commentsMode?: string; // "none" | "fill" | "color" | "italic"
+
 }
 function ifund<T>(x:T|undefined,y:T):T {
 	return x === undefined ? y : x;
@@ -39,30 +30,6 @@ function ifund<T>(x:T|undefined,y:T):T {
 function getPreferences(): LWAPreferences {
 	const userProperties = PropertiesService.getUserProperties();
 	return {
-		applyFormat: ifund(userProperties.getProperty('applyFormat'),'false') == 'true',
-		blocksMode: ifund(userProperties.getProperty('colorBlocks'),'color'),
-		blocksBold: ifund(userProperties.getProperty('blocksBold'),'false') == 'true',
-		buttonsMode: ifund(userProperties.getProperty('buttonsMode'),'boldmono'),
-		commentsMode: ifund(userProperties.getProperty('commentsMode'),'color')
+		//applyFormat: ifund(userProperties.getProperty('applyFormat'),'false') == 'true',
 	};
 }
-
-interface TResult {
-	as3: string[];
-}
-function transpile(options: LWAPreferences = {}):TResult {
-	const userProperties = PropertiesService.getUserProperties();
-	userProperties.setProperty('flushFormat', ''+ options.applyFormat);
-	userProperties.setProperty('blocksMode', ''+ options.blocksMode);
-	userProperties.setProperty('blocksBold', ''+ options.blocksBold);
-	userProperties.setProperty('buttonsMode', ''+ options.buttonsMode);
-	userProperties.setProperty('commentsMode', ''+ options.commentsMode);
-	Logger.clear();
-	Logger.log("transplie("+JSON.stringify(options)+")");
-	const result: TResult = {as3: []};
-	const files = parseDocument(DocumentApp.getActiveDocument());
-	result.as3 = writeSources(files);
-	if (options.applyFormat) formatDocument(files,options);
-	return result;
-}
-

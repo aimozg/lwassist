@@ -72,25 +72,21 @@ function traceElement(depth: number, e: Element): void {
 		}
 	}
 }
-function styBg(sty: any, bg: string):any {
-	sty[DocumentApp.Attribute.BACKGROUND_COLOR] = bg;
-	return sty;
-}
-function styFg(sty: any, fg: string):any {
-	sty[DocumentApp.Attribute.FOREGROUND_COLOR] = fg;
-	return sty;
-}
-function styBold(sty: any, bold: boolean):any {
-	sty[DocumentApp.Attribute.BOLD] = ''+bold;
-	return sty;
-}
-function styItalic(sty: any, italic: boolean):any {
-	sty[DocumentApp.Attribute.ITALIC] = ''+italic;
-	return sty;
-}
-function styFace(sty: any, fontFamily:string):any {
-	sty[DocumentApp.Attribute.FONT_FAMILY] = fontFamily;
-	return sty;
+
+function applyStyle(run:TTextRun, style:{
+	fg?:string,
+	bg?:string,
+	bold?:boolean,
+	italic?:boolean,
+	face?:string
+}) {
+	let sty:any = {};
+	if ('fg' in style && style.fg !== null) sty[DocumentApp.Attribute.FOREGROUND_COLOR] = style.fg;
+	if ('bg' in style && style.bg !== null) sty[DocumentApp.Attribute.BACKGROUND_COLOR] = style.bg;
+	if ('bold' in style && style.bold !== null) sty[DocumentApp.Attribute.BOLD] = ''+style.bold;
+	if ('italic' in style && style.italic !== null) sty[DocumentApp.Attribute.ITALIC] = ''+style.italic;
+	if ('face' in style && style.face !== null) sty[DocumentApp.Attribute.FONT_FAMILY] = style.face;
+	run.element.setAttributes(run.i1,run.i2-1,sty);
 }
 function debugDom(): { logs: string } {
 	Logger.clear();
@@ -151,4 +147,38 @@ function extractTagWithRest(s: string): [string, string] {
 		return [match[1].toLowerCase(), match[2]];
 	}
 	return ['', ''];
+}
+
+function paragraphOf(ele:Element):Paragraph {
+	while (ele && ele.getType() !== DocumentApp.ElementType.PARAGRAPH) ele = ele.getParent();
+	return ele ? ele.asParagraph() : null;
+}
+function headingValue(h:DocumentApp.ParagraphHeading):number {
+	switch (h) {
+		case DocumentApp.ParagraphHeading.TITLE: return 0;
+		case DocumentApp.ParagraphHeading.SUBTITLE: return 1;
+		case DocumentApp.ParagraphHeading.HEADING1: return 2;
+		case DocumentApp.ParagraphHeading.HEADING2: return 3;
+		case DocumentApp.ParagraphHeading.HEADING3: return 4;
+		case DocumentApp.ParagraphHeading.HEADING4: return 5;
+		case DocumentApp.ParagraphHeading.HEADING5: return 6;
+		case DocumentApp.ParagraphHeading.HEADING6: return 7;
+		case DocumentApp.ParagraphHeading.NORMAL: return 8;
+		default: return 10;
+	}
+}
+function iterateFromHeader(header:Paragraph,code:(par:Paragraph)=>any) {
+	let h0 = headingValue(header.getHeading());
+	let next:Element = header;
+	while (true) {
+		do {
+			next = next.getNextSibling();
+		} while (next && next.getType() != DocumentApp.ElementType.PARAGRAPH);
+		if (!next) break;
+		let par = next.asParagraph();
+		if (headingValue(par.getHeading()) <= h0) {
+			break;
+		}
+		code(par);
+	}
 }
